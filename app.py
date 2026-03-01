@@ -1,12 +1,9 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import plotly.express as px
-import plotly.graph_objects as go
 from dataclasses import dataclass, asdict
 from typing import List, Dict
-import json
+import plotly.express as px
 
 # إعداد الصفحة
 st.set_page_config(
@@ -26,12 +23,6 @@ st.markdown("""
         color: white;
         text-align: center;
         margin-bottom: 20px;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #2a5298;
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
@@ -82,48 +73,34 @@ class ProductionRecord:
         return asdict(self)
 
 
-class GoogleSheetsManager:
+class DataManager:
+    """مدير البيانات باستخدام st.session_state"""
+    
     def __init__(self):
-        try:
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-            self.worksheet_name = "production_logs"
-            self.connected = True
-        except Exception as e:
-            st.error(f"⚠️ خطأ في الاتصال: {e}")
-            self.connected = False
+        if 'production_data' not in st.session_state:
+            st.session_state.production_data = pd.DataFrame(columns=[
+                'timestamp', 'date_only', 'time_only', 'shift', 'operator',
+                'inspector', 'ccm', 'heat', 'grade', 'strand', 'rh', 'status',
+                'd1', 'd2', 'billet_count', 'storage_loc', 'short_billet_length', 'sample_info'
+            ])
     
-    def fetch_data(self) -> pd.DataFrame:
-        if not self.connected:
-            return pd.DataFrame()
-        try:
-            df = self.conn.read(worksheet=self.worksheet_name, ttl="0")
-            if df.empty:
-                return pd.DataFrame(columns=[
-                    'timestamp', 'date_only', 'time_only', 'shift', 'operator',
-                    'inspector', 'ccm', 'heat', 'grade', 'strand', 'rh', 'status',
-                    'd1', 'd2', 'billet_count', 'storage_loc', 'short_billet_length', 'sample_info'
-                ])
-            return df
-        except Exception as e:
-            st.error(f"❌ خطأ في جلب البيانات: {e}")
-            return pd.DataFrame()
+    def get_data(self) -> pd.DataFrame:
+        return st.session_state.production_data
     
-    def save_data(self, new_records: List[Dict]) -> bool:
-        if not self.connected:
-            return False
-        try:
-            existing_data = self.fetch_data()
-            new_df = pd.DataFrame(new_records)
-            updated_df = pd.concat([existing_data, new_df], ignore_index=True)
-            self.conn.update(worksheet=self.worksheet_name, data=updated_df)
-            return True
-        except Exception as e:
-            st.error(f"❌ خطأ في الحفظ: {e}")
-            return False
+    def add_records(self, records: List[Dict]):
+        new_df = pd.DataFrame(records)
+        st.session_state.production_data = pd.concat(
+            [st.session_state.production_data, new_df], 
+            ignore_index=True
+        )
+        return True
+    
+    def export_csv(self):
+        return st.session_state.production_data.to_csv(index=False).encode('utf-8-sig')
 
 
 def generate_label_html(heat_no, grade, ccm, date_str, storage, b_count, s_len, strands_data):
-    """توليد ملصق HTML بدلاً من PDF"""
+    """توليد ملصق HTML"""
     strands_html = ""
     for strand in strands_data:
         color = "#28a745" if strand.status == "PASS" else "#dc3545"
@@ -137,7 +114,7 @@ def generate_label_html(heat_no, grade, ccm, date_str, storage, b_count, s_len, 
     short_billet_html = f"<p><strong>Short Billet:</strong> {s_len} m</p>" if s_len > 0 else ""
     
     html = f"""
-    <div style="width: 350px; border: 3px solid #2a5298; padding: 20px; margin: 20px auto; 
+    <div id="printable-label" style="width: 350px; border: 3px solid #2a5298; padding: 20px; margin: 20px auto; 
                 background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 10px; font-family: Arial;">
         <h2 style="text-align: center; color: #1e3c72; margin-bottom: 20px; border-bottom: 2px solid #2a5298; padding-bottom: 10px;">
             🏭 QC PRODUCTION LABEL
@@ -188,15 +165,17 @@ def main():
                 st.subheader("🔐 تسجيل الدخول")
                 password = st.text_input("كلمة المرور:", type="password")
                 if st.button("دخول", use_container_width=True, type="primary"):
-                    if password == st.secrets.get("auth", {}).get("password", "1100"):
+                    # كلمة المرور الافتراضية أو من secrets
+                    correct_password = st.secrets.get("password", "1100") if hasattr(st, "secrets") else "1100"
+                    if password == correct_password:
                         st.session_state.auth = True
                         st.rerun()
                     else:
                         st.error("❌ كلمة المرور غير صحيحة!")
         return
     
-    # تهيئة مدير Sheets
-    sheets_manager = GoogleSheetsManager()
+    # تهيئة مدير البيانات
+    data_manager = DataManager()
     
     # الشريط الجانبي
     with st.sidebar:
@@ -204,9 +183,24 @@ def main():
         <div style='text-align: center; padding: 20px; background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%); 
                     border-radius: 10px; color: white;'>
             <h3>☁️ نظام QC</h3>
-            <p>متصل</p>
+            <p>🟢 متصل</p>
         </div>
         """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # تصدير البيانات
+        if not data_manager.get_data().empty:
+            csv_data = data_manager.export_csv()
+            st.download_button(
+                label="📥 تصدير جميع البيانات (CSV)",
+                data=csv_data,
+                file_name=f"steel_qc_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
+        st.divider()
         
         if st.button("🚪 تسجيل الخروج", use_container_width=True):
             st.session_state.auth = False
@@ -219,7 +213,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    tabs = st.tabs(["📝 إدخال جديد", "📊 لوحة التحكم", "🔍 البحث"])
+    tabs = st.tabs(["📝 إدخال جديد", "📊 لوحة التحكم", "🔍 البحث والتقارير"])
     
     # تبويب الإدخال
     with tabs[0]:
@@ -229,34 +223,36 @@ def main():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                heat = st.text_input("🔥 رقم الصبة", placeholder="H2024001")
+                heat = st.text_input("🔥 رقم الصبة (Heat No)", placeholder="مثال: H2024001")
                 grade = st.selectbox("⚙️ الرتبة", ["B500", "B500W", "SAE1006", "SAE1008"])
-                ccm = st.selectbox("🏭 الماكينة", ["CCM01", "CCM02"])
+                ccm = st.selectbox("🏭 الماكينة (CCM)", ["CCM01", "CCM02"])
             
             with col2:
                 shift = st.selectbox("⏰ الوردية", ["A", "B", "C", "D"])
-                operator = st.text_input("👷 عامل الصب")
+                operator = st.text_input("👷 عامل الصب", placeholder="اسم العامل")
                 area = st.selectbox("📍 المنطقة", ["RM01", "RM02", "RM03", "SMS"])
             
             with col3:
-                billet_count = st.number_input("📊 العدد", min_value=1, value=40)
+                billet_count = st.number_input("📊 عدد البليتات", min_value=1, max_value=100, value=40)
                 max_boxes = 9 if area == "SMS" else 5
                 box = st.selectbox("📦 الصندوق", [f"Box {i}" for i in range(1, max_boxes)])
-                short_l = st.number_input("📏 Short Billet (m)", min_value=0.0, value=0.0)
+                short_l = st.number_input("📏 Short Billet (m)", min_value=0.0, max_value=12.0, value=0.0, step=0.1)
             
             st.divider()
-            st.subheader("📐 قياسات Strands (الحد الأقصى: 8mm)")
+            st.subheader("📐 قياسات Strands (الحد الأقصى للفرق: 8mm)")
             
             strand_data_list = []
             strand_cols = st.columns(5)
             
             for i in range(1, 6):
                 with strand_cols[i-1]:
-                    st.write(f"**Strand 0{i}**")
-                    d1 = st.number_input(f"D1", key=f"d1_{i}", min_value=0.0, step=0.1)
-                    d2 = st.number_input(f"D2", key=f"d2_{i}", min_value=0.0, step=0.1)
-                    sample = st.checkbox(f"عينة", key=f"s_{i}")
-                    s_no = st.text_input("ترتيب", key=f"sn_{i}") if sample else ""
+                    st.markdown(f"**Strand 0{i}**")
+                    
+                    d1 = st.number_input(f"D1 (mm)", key=f"d1_{i}", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
+                    d2 = st.number_input(f"D2 (mm)", key=f"d2_{i}", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
+                    
+                    sample = st.checkbox(f"🧪 عينة", key=f"s_{i}")
+                    s_no = st.text_input("رقم العينة", key=f"sn_{i}", disabled=not sample) if sample else ""
                     
                     strand = StrandData(
                         strand_id=f"S0{i}",
@@ -267,15 +263,30 @@ def main():
                     )
                     strand_data_list.append(strand)
                     
+                    # عرض الحالة
                     status_color = "🟢" if strand.status == "PASS" else "🔴"
-                    st.caption(f"{status_color} RH: {strand.rh}mm")
+                    status_bg = "linear-gradient(90deg, #d4edda 0%, #c3e6cb 100%)" if strand.status == "PASS" else "linear-gradient(90deg, #f8d7da 0%, #f5c6cb 100%)"
+                    
+                    st.markdown(f"""
+                    <div style="padding: 8px; border-radius: 5px; background: {status_bg}; text-align: center; margin-top: 5px;">
+                        <small>{status_color} <b>RH: {strand.rh}mm</b><br>{strand.status}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
             
-            submitted = st.form_submit_button("💾 حفظ في السحابة", use_container_width=True, type="primary")
+            st.divider()
+            
+            col_submit, col_clear = st.columns([3, 1])
+            with col_submit:
+                submitted = st.form_submit_button("💾 حفظ البيانات + عرض الملصق", use_container_width=True, type="primary")
             
             if submitted:
-                if not heat or not operator:
-                    st.error("❌ يجب ملء جميع الحقول الإلزامية!")
+                # التحقق من البيانات
+                if not heat:
+                    st.error("❌ يجب إدخال رقم الصبة (Heat No)!")
+                elif not operator:
+                    st.error("❌ يجب إدخال اسم العامل!")
                 else:
+                    # إنشاء السجلات
                     now = datetime.now()
                     records = []
                     
@@ -304,91 +315,250 @@ def main():
                             records.append(record.to_dict())
                     
                     if records:
-                        with st.spinner("جاري الحفظ..."):
-                            if sheets_manager.save_data(records):
-                                st.success(f"✅ تم حفظ {len(records)} سجل!")
-                                
-                                # عرض الملصق
-                                label_html = generate_label_html(
-                                    heat, grade, ccm, now.strftime("%Y-%m-%d"),
-                                    f"{area} ({box})", billet_count, short_l, strand_data_list
-                                )
-                                st.markdown("### 🏷️ الملصق:")
-                                st.markdown(label_html, unsafe_allow_html=True)
-                                
-                                # زر طباعة
-                                st.markdown("""
-                                <script>
-                                function printLabel() {
-                                    window.print();
-                                }
-                                </script>
-                                <button onclick="printLabel()" style="padding: 10px 20px; background: #2a5298; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                    🖨️ طباعة الملصق
-                                </button>
-                                """, unsafe_allow_html=True)
+                        # حفظ البيانات
+                        data_manager.add_records(records)
+                        st.success(f"✅ تم حفظ {len(records)} سجل بنجاح!")
+                        
+                        # عرض الملصق
+                        label_html = generate_label_html(
+                            heat, grade, ccm, now.strftime("%Y-%m-%d"),
+                            f"{area} ({box})", billet_count, short_l, strand_data_list
+                        )
+                        
+                        st.markdown("### 🏷️ معاينة الملصق:")
+                        st.markdown(label_html, unsafe_allow_html=True)
+                        
+                        # زر الطباعة
+                        st.markdown("""
+                        <div style="text-align: center; margin-top: 10px;">
+                            <button onclick="window.print()" style="padding: 12px 24px; background: #2a5298; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                                🖨️ طباعة الملصق
+                            </button>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # تحميل الملصق كـ HTML
+                        full_html = f"""
+                        <!DOCTYPE html>
+                        <html dir="ltr">
+                        <head>
+                            <meta charset="UTF-8">
+                            <title>Label {heat}</title>
+                            <style>
+                                @media print {{
+                                    body {{ margin: 0; }}
+                                    .no-print {{ display: none; }}
+                                }}
+                            </style>
+                        </head>
+                        <body>
+                            {label_html}
+                            <div class="no-print" style="text-align: center; margin-top: 20px;">
+                                <button onclick="window.print()" style="padding: 10px 20px;">طباعة</button>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                        st.download_button(
+                            "📄 تحميل الملصق (HTML)",
+                            full_html,
+                            f"Label_{heat}_{now.strftime('%H%M%S')}.html",
+                            "text/html",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning("⚠️ لم يتم إدخال قياسات لأي Strand!")
     
     # تبويب لوحة التحكم
     with tabs[1]:
-        st.header("📊 لوحة التحكم")
-        df = sheets_manager.fetch_data()
+        st.header("📊 لوحة التحكم والإحصائيات")
+        
+        df = data_manager.get_data()
         
         if df.empty:
-            st.info("📭 لا توجد بيانات")
+            st.info("📭 لا توجد بيانات مسجلة بعد. ابدأ بإدخال بيانات جديدة من تبويب 'إدخال جديد'.")
+            
+            # بيانات تجريبية للعرض
+            st.divider()
+            st.caption("🎯 مثال على شكل لوحة التحكم:")
+            
+            col_demo = st.columns(4)
+            col_demo[0].metric("📊 الإجمالي", "0")
+            col_demo[1].metric("✅ المجتاز", "0")
+            col_demo[2].metric("❌ المرفوض", "0")
+            col_demo[3].metric("📈 النسبة", "0%")
         else:
             # الإحصائيات
             total = len(df)
             pass_count = len(df[df['status'] == 'PASS'])
-            reject_count = total - pass_count
+            reject_count = len(df[df['status'] == 'REJECT'])
             pass_rate = (pass_count / total * 100) if total > 0 else 0
             
             cols = st.columns(4)
-            cols[0].metric("📊 الإجمالي", total)
-            cols[1].metric("✅ المجتاز", pass_count)
-            cols[2].metric("❌ المرفوض", reject_count)
-            cols[3].metric("📈 النسبة", f"{pass_rate:.1f}%")
+            cols[0].metric("📊 إجمالي السجلات", total, help="عدد جميع القياسات المسجلة")
+            cols[1].metric("✅ المجتاز", pass_count, f"{pass_rate:.1f}%", delta_color="normal")
+            cols[2].metric("❌ المرفوض", reject_count, f"{100-pass_rate:.1f}%", delta_color="inverse")
+            cols[3].metric("📈 نسبة النجاح", f"{pass_rate:.1f}%", help="نسبة القياسات ضمن المعيار")
+            
+            st.divider()
             
             # الرسوم البيانية
             col_chart1, col_chart2 = st.columns(2)
             
             with col_chart1:
+                st.subheader("📊 توزيع حالة الجودة")
                 status_counts = df['status'].value_counts()
+                
+                colors = {'PASS': '#28a745', 'REJECT': '#dc3545'}
                 fig_pie = px.pie(
                     values=status_counts.values,
                     names=status_counts.index,
                     color=status_counts.index,
-                    color_discrete_map={'PASS': '#28a745', 'REJECT': '#dc3545'},
+                    color_discrete_map=colors,
                     hole=0.4,
-                    title="حالة الجودة"
+                    title="نسبة المجتاز vs المرفوض"
                 )
+                fig_pie.update_traces(textinfo='percent+label', textfont_size=14)
                 st.plotly_chart(fig_pie, use_container_width=True)
             
             with col_chart2:
+                st.subheader("📈 توزيع قيم RH")
                 fig_hist = px.histogram(
-                    df, x="rh", color="status",
-                    color_discrete_map={'PASS': '#28a745', 'REJECT': '#dc3545'},
-                    title="توزيع قيم RH"
+                    df, 
+                    x="rh", 
+                    color="status",
+                    nbins=20,
+                    color_discrete_map=colors,
+                    labels={'rh': 'قيمة RH (mm)', 'count': 'التكرار'},
+                    title="توزيع قيم الاختلاف"
                 )
-                fig_hist.add_vline(x=8.0, line_dash="dash", line_color="red")
+                fig_hist.add_vline(x=8.0, line_dash="dash", line_color="red", 
+                                  annotation_text="الحد الأقصى (8mm)")
                 st.plotly_chart(fig_hist, use_container_width=True)
+            
+            # رسم بياني للاتجاهات
+            st.subheader("📉 تطور الجودة عبر الزمن")
+            
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            daily_stats = df.groupby([df['timestamp'].dt.date, 'status']).size().unstack(fill_value=0)
+            
+            fig_trend = go.Figure()
+            if 'PASS' in daily_stats.columns:
+                fig_trend.add_trace(go.Scatter(
+                    x=daily_stats.index, 
+                    y=daily_stats['PASS'],
+                    mode='lines+markers',
+                    name='✅ PASS',
+                    line=dict(color='#28a745', width=3),
+                    fill='tozeroy'
+                ))
+            if 'REJECT' in daily_stats.columns:
+                fig_trend.add_trace(go.Scatter(
+                    x=daily_stats.index, 
+                    y=daily_stats['REJECT'],
+                    mode='lines+markers',
+                    name='❌ REJECT',
+                    line=dict(color='#dc3545', width=3)
+                ))
+            
+            fig_trend.update_layout(
+                xaxis_title="التاريخ",
+                yaxis_title="عدد القياسات",
+                hovermode='x unified',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02)
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
     
     # تبويب البحث
     with tabs[2]:
-        st.header("🔍 البحث والأرشيف")
-        df = sheets_manager.fetch_data()
+        st.header("🔍 البحث والتقارير")
         
-        if not df.empty:
-            search = st.text_input("ابحث برقم الصبة، العامل، أو الموقع:")
-            if search:
-                results = df[
-                    df['heat'].astype(str).str.contains(search, case=False, na=False) |
-                    df['operator'].astype(str).str.contains(search, case=False, na=False) |
-                    df['storage_loc'].astype(str).str.contains(search, case=False, na=False)
-                ]
-                st.dataframe(results, use_container_width=True)
+        df = data_manager.get_data()
+        
+        if df.empty:
+            st.info("📭 لا توجد بيانات للبحث")
+        else:
+            # فلاتر البحث
+            with st.expander("🔧 خيارات البحث", expanded=True):
+                col_search1, col_search2 = st.columns([2, 1])
                 
-                csv = results.to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 تصدير CSV", csv, "results.csv", "text/csv")
+                with col_search1:
+                    search_term = st.text_input(
+                        "🔍 بحث عام:",
+                        placeholder="رقم الصبة، اسم العامل، الموقع..."
+                    )
+                
+                with col_search2:
+                    status_filter = st.multiselect(
+                        "حالة الجودة:",
+                        options=['PASS', 'REJECT'],
+                        default=['PASS', 'REJECT']
+                    )
+            
+            # تطبيق الفلاتر
+            filtered_df = df.copy()
+            
+            if search_term:
+                mask = (
+                    filtered_df['heat'].astype(str).str.contains(search_term, case=False, na=False) |
+                    filtered_df['operator'].astype(str).str.contains(search_term, case=False, na=False) |
+                    filtered_df['storage_loc'].astype(str).str.contains(search_term, case=False, na=False) |
+                    filtered_df['ccm'].astype(str).str.contains(search_term, case=False, na=False)
+                )
+                filtered_df = filtered_df[mask]
+            
+            if status_filter:
+                filtered_df = filtered_df[filtered_df['status'].isin(status_filter)]
+            
+            # عرض النتائج
+            st.subheader(f"📋 النتائج: {len(filtered_df)} سجل")
+            
+            if len(filtered_df) > 0:
+                # تنسيق الجدول
+                display_df = filtered_df.copy()
+                if 'rh' in display_df.columns:
+                    display_df['rh'] = display_df['rh'].round(2)
+                
+                st.dataframe(
+                    display_df.sort_values('timestamp', ascending=False),
+                    use_container_width=True,
+                    height=min(600, 100 + (len(display_df) * 35)),
+                    column_config={
+                        'status': st.column_config.SelectboxColumn(
+                            "الحالة",
+                            options=['PASS', 'REJECT'],
+                            help="حالة الجودة"
+                        ),
+                        'rh': st.column_config.NumberColumn(
+                            "RH (mm)",
+                            format="%.2f",
+                            help="قيمة الفرق"
+                        ),
+                        'timestamp': st.column_config.DatetimeColumn(
+                            "التاريخ والوقت",
+                            format="YYYY-MM-DD HH:mm"
+                        )
+                    }
+                )
+                
+                # إحصائيات سريعة للنتائج
+                if len(filtered_df) > 0:
+                    col_stats = st.columns(3)
+                    col_stats[0].metric("النتائج المعروضة", len(filtered_df))
+                    col_stats[1].metric("المجتاز", len(filtered_df[filtered_df['status'] == 'PASS']))
+                    col_stats[2].metric("المرفوض", len(filtered_df[filtered_df['status'] == 'REJECT']))
+                
+                # تصدير النتائج
+                csv_results = filtered_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    "📥 تصدير النتائج (CSV)",
+                    csv_results,
+                    f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning("🔍 لا توجد نتائج مطابقة لمعايير البحث")
 
 
 if __name__ == "__main__":
