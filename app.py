@@ -1,9 +1,17 @@
 import streamlit as st
+
 import pandas as pd
+
 from datetime import datetime
+
 from dataclasses import dataclass, asdict
+
 from typing import List, Dict
+
 import plotly.express as px
+
+import plotly.graph_objects as go
+
 
 # إعداد الصفحة
 st.set_page_config(
@@ -12,6 +20,7 @@ st.set_page_config(
     page_icon="🏭",
     initial_sidebar_state="expanded"
 )
+
 
 # CSS مخصص
 st.markdown("""
@@ -27,6 +36,25 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
     }
+    .status-pass {
+        background-color: #d4edda;
+        color: #155724;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-weight: bold;
+    }
+    .status-reject {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-weight: bold;
+    }
+    @media print {
+        body { margin: 0; }
+        .no-print { display: none !important; }
+        button { display: none !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -38,11 +66,11 @@ class StrandData:
     d2: float
     sample_taken: bool
     sample_no: str = ""
-    
+
     @property
     def rh(self) -> float:
         return round(abs(self.d1 - self.d2), 2)
-    
+
     @property
     def status(self) -> str:
         return "PASS" if self.rh <= 8.0 else "REJECT"
@@ -68,14 +96,14 @@ class ProductionRecord:
     storage_loc: str
     short_billet_length: float
     sample_info: str
-    
+
     def to_dict(self) -> Dict:
         return asdict(self)
 
 
 class DataManager:
     """مدير البيانات باستخدام st.session_state"""
-    
+
     def __init__(self):
         if 'production_data' not in st.session_state:
             st.session_state.production_data = pd.DataFrame(columns=[
@@ -83,18 +111,18 @@ class DataManager:
                 'inspector', 'ccm', 'heat', 'grade', 'strand', 'rh', 'status',
                 'd1', 'd2', 'billet_count', 'storage_loc', 'short_billet_length', 'sample_info'
             ])
-    
+
     def get_data(self) -> pd.DataFrame:
         return st.session_state.production_data
-    
+
     def add_records(self, records: List[Dict]):
         new_df = pd.DataFrame(records)
         st.session_state.production_data = pd.concat(
-            [st.session_state.production_data, new_df], 
+            [st.session_state.production_data, new_df],
             ignore_index=True
         )
         return True
-    
+
     def export_csv(self):
         return st.session_state.production_data.to_csv(index=False).encode('utf-8-sig')
 
@@ -104,40 +132,40 @@ def generate_label_html(heat_no, grade, ccm, date_str, storage, b_count, s_len, 
     strands_html = ""
     for strand in strands_data:
         color = "#28a745" if strand.status == "PASS" else "#dc3545"
-        status_icon = "✓" if strand.status == "PASS" else "✗"
+        status_icon = "&#10004;" if strand.status == "PASS" else "&#10008;"
         strands_html += f"""
         <div style="margin: 5px 0; color: {color}; font-weight: bold;">
             {strand.strand_id}: {status_icon} (RH: {strand.rh}mm)
         </div>
         """
-    
-    short_billet_html = f"<p><strong>Short Billet:</strong> {s_len} m</p>" if s_len > 0 else ""
-    
+
+    short_billet_html = f"<p style='margin: 8px 0;'><strong>Short Billet:</strong> {s_len} m</p>" if s_len > 0 else ""
+
     html = f"""
-    <div id="printable-label" style="width: 350px; border: 3px solid #2a5298; padding: 20px; margin: 20px auto; 
+    <div id="printable-label" style="width: 350px; border: 3px solid #2a5298; padding: 20px; margin: 20px auto;
                 background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 10px; font-family: Arial;">
         <h2 style="text-align: center; color: #1e3c72; margin-bottom: 20px; border-bottom: 2px solid #2a5298; padding-bottom: 10px;">
-            🏭 QC PRODUCTION LABEL
+            QC PRODUCTION LABEL
         </h2>
-        
+
         <div style="margin-bottom: 15px;">
-            <p style="margin: 8px 0;"><strong>🔥 Heat No:</strong> {heat_no}</p>
-            <p style="margin: 8px 0;"><strong>⚙️ Grade:</strong> {grade}</p>
-            <p style="margin: 8px 0;"><strong>📍 Storage:</strong> {storage}</p>
-            <p style="margin: 8px 0;"><strong>📊 Billet Count:</strong> {b_count}</p>
-            <p style="margin: 8px 0;"><strong>🏭 CCM:</strong> {ccm}</p>
-            <p style="margin: 8px 0;"><strong>📅 Date:</strong> {date_str}</p>
+            <p style="margin: 8px 0;"><strong>Heat No:</strong> {heat_no}</p>
+            <p style="margin: 8px 0;"><strong>Grade:</strong> {grade}</p>
+            <p style="margin: 8px 0;"><strong>Storage:</strong> {storage}</p>
+            <p style="margin: 8px 0;"><strong>Billet Count:</strong> {b_count}</p>
+            <p style="margin: 8px 0;"><strong>CCM:</strong> {ccm}</p>
+            <p style="margin: 8px 0;"><strong>Date:</strong> {date_str}</p>
             {short_billet_html}
         </div>
-        
+
         <div style="background: white; padding: 10px; border-radius: 5px; margin: 15px 0;">
             <strong>Strands Status:</strong>
             {strands_html}
         </div>
-        
+
         <div style="text-align: center; margin-top: 20px; padding: 10px; background: white; border-radius: 5px;">
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=HEAT:{heat_no}|LOC:{storage}" 
-                 style="width: 150px; height: 150px;" />
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=HEAT:{heat_no}|LOC:{storage}"
+                 style="width: 150px; height: 150px;" alt="QR Code" />
             <p style="font-size: 12px; color: #666; margin-top: 5px;">Scan for digital record</p>
         </div>
     </div>
@@ -149,7 +177,7 @@ def main():
     # تهيئة الجلسة
     if "auth" not in st.session_state:
         st.session_state.auth = False
-    
+
     # شاشة تسجيل الدخول
     if not st.session_state.auth:
         st.markdown("""
@@ -158,37 +186,36 @@ def main():
             <p>Steel Quality Cloud Management System</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             with st.container():
                 st.subheader("🔐 تسجيل الدخول")
                 password = st.text_input("كلمة المرور:", type="password")
                 if st.button("دخول", use_container_width=True, type="primary"):
-                    # كلمة المرور الافتراضية أو من secrets
-                    correct_password = st.secrets.get("password", "1100") if hasattr(st, "secrets") else "1100"
+                    correct_password = "1100"  # كلمة المرور الافتراضية
                     if password == correct_password:
                         st.session_state.auth = True
                         st.rerun()
                     else:
                         st.error("❌ كلمة المرور غير صحيحة!")
         return
-    
+
     # تهيئة مدير البيانات
     data_manager = DataManager()
-    
+
     # الشريط الجانبي
     with st.sidebar:
         st.markdown("""
-        <div style='text-align: center; padding: 20px; background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%); 
+        <div style='text-align: center; padding: 20px; background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
                     border-radius: 10px; color: white;'>
             <h3>☁️ نظام QC</h3>
             <p>🟢 متصل</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
         st.divider()
-        
+
         # تصدير البيانات
         if not data_manager.get_data().empty:
             csv_data = data_manager.export_csv()
@@ -199,367 +226,38 @@ def main():
                 mime="text/csv",
                 use_container_width=True
             )
-        
+
         st.divider()
-        
+
         if st.button("🚪 تسجيل الخروج", use_container_width=True):
             st.session_state.auth = False
             st.rerun()
-    
+
     # المحتوى الرئيسي
     st.markdown("""
     <div class="main-header">
         <h2>☁️ Cloud QC Management</h2>
     </div>
     """, unsafe_allow_html=True)
-    
+
     tabs = st.tabs(["📝 إدخال جديد", "📊 لوحة التحكم", "🔍 البحث والتقارير"])
-    
+
     # تبويب الإدخال
     with tabs[0]:
         st.header("إدخال بيانات إنتاج جديدة")
-        
+
         with st.form("production_form", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
                 heat = st.text_input("🔥 رقم الصبة (Heat No)", placeholder="مثال: H2024001")
                 grade = st.selectbox("⚙️ الرتبة", ["B500", "B500W", "SAE1006", "SAE1008"])
                 ccm = st.selectbox("🏭 الماكينة (CCM)", ["CCM01", "CCM02"])
-            
+
             with col2:
                 shift = st.selectbox("⏰ الوردية", ["A", "B", "C", "D"])
                 operator = st.text_input("👷 عامل الصب", placeholder="اسم العامل")
                 area = st.selectbox("📍 المنطقة", ["RM01", "RM02", "RM03", "SMS"])
-            
+
             with col3:
-                billet_count = st.number_input("📊 عدد البليتات", min_value=1, max_value=100, value=40)
-                max_boxes = 9 if area == "SMS" else 5
-                box = st.selectbox("📦 الصندوق", [f"Box {i}" for i in range(1, max_boxes)])
-                short_l = st.number_input("📏 Short Billet (m)", min_value=0.0, max_value=12.0, value=0.0, step=0.1)
-            
-            st.divider()
-            st.subheader("📐 قياسات Strands (الحد الأقصى للفرق: 8mm)")
-            
-            strand_data_list = []
-            strand_cols = st.columns(5)
-            
-            for i in range(1, 6):
-                with strand_cols[i-1]:
-                    st.markdown(f"**Strand 0{i}**")
-                    
-                    d1 = st.number_input(f"D1 (mm)", key=f"d1_{i}", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
-                    d2 = st.number_input(f"D2 (mm)", key=f"d2_{i}", min_value=0.0, max_value=200.0, step=0.1, value=0.0)
-                    
-                    sample = st.checkbox(f"🧪 عينة", key=f"s_{i}")
-                    s_no = st.text_input("رقم العينة", key=f"sn_{i}", disabled=not sample) if sample else ""
-                    
-                    strand = StrandData(
-                        strand_id=f"S0{i}",
-                        d1=d1,
-                        d2=d2,
-                        sample_taken=sample,
-                        sample_no=s_no
-                    )
-                    strand_data_list.append(strand)
-                    
-                    # عرض الحالة
-                    status_color = "🟢" if strand.status == "PASS" else "🔴"
-                    status_bg = "linear-gradient(90deg, #d4edda 0%, #c3e6cb 100%)" if strand.status == "PASS" else "linear-gradient(90deg, #f8d7da 0%, #f5c6cb 100%)"
-                    
-                    st.markdown(f"""
-                    <div style="padding: 8px; border-radius: 5px; background: {status_bg}; text-align: center; margin-top: 5px;">
-                        <small>{status_color} <b>RH: {strand.rh}mm</b><br>{strand.status}</small>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            st.divider()
-            
-            col_submit, col_clear = st.columns([3, 1])
-            with col_submit:
-                submitted = st.form_submit_button("💾 حفظ البيانات + عرض الملصق", use_container_width=True, type="primary")
-            
-            if submitted:
-                # التحقق من البيانات
-                if not heat:
-                    st.error("❌ يجب إدخال رقم الصبة (Heat No)!")
-                elif not operator:
-                    st.error("❌ يجب إدخال اسم العامل!")
-                else:
-                    # إنشاء السجلات
-                    now = datetime.now()
-                    records = []
-                    
-                    for strand in strand_data_list:
-                        if strand.d1 > 0 or strand.d2 > 0:
-                            record = ProductionRecord(
-                                timestamp=now.strftime("%Y-%m-%d %H:%M:%S"),
-                                date_only=now.strftime("%Y-%m-%d"),
-                                time_only=now.strftime("%H:%M:%S"),
-                                shift=shift,
-                                operator=operator,
-                                inspector="Admin",
-                                ccm=ccm,
-                                heat=heat,
-                                grade=grade,
-                                strand=strand.strand_id,
-                                rh=strand.rh,
-                                status=strand.status,
-                                d1=strand.d1,
-                                d2=strand.d2,
-                                billet_count=billet_count,
-                                storage_loc=f"{area} ({box})",
-                                short_billet_length=short_l,
-                                sample_info=f"{strand.strand_id}-#{strand.sample_no}" if strand.sample_taken else "None"
-                            )
-                            records.append(record.to_dict())
-                    
-                    if records:
-                        # حفظ البيانات
-                        data_manager.add_records(records)
-                        st.success(f"✅ تم حفظ {len(records)} سجل بنجاح!")
-                        
-                        # عرض الملصق
-                        label_html = generate_label_html(
-                            heat, grade, ccm, now.strftime("%Y-%m-%d"),
-                            f"{area} ({box})", billet_count, short_l, strand_data_list
-                        )
-                        
-                        st.markdown("### 🏷️ معاينة الملصق:")
-                        st.markdown(label_html, unsafe_allow_html=True)
-                        
-                        # زر الطباعة
-                        st.markdown("""
-                        <div style="text-align: center; margin-top: 10px;">
-                            <button onclick="window.print()" style="padding: 12px 24px; background: #2a5298; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                                🖨️ طباعة الملصق
-                            </button>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # تحميل الملصق كـ HTML
-                        full_html = f"""
-                        <!DOCTYPE html>
-                        <html dir="ltr">
-                        <head>
-                            <meta charset="UTF-8">
-                            <title>Label {heat}</title>
-                            <style>
-                                @media print {{
-                                    body {{ margin: 0; }}
-                                    .no-print {{ display: none; }}
-                                }}
-                            </style>
-                        </head>
-                        <body>
-                            {label_html}
-                            <div class="no-print" style="text-align: center; margin-top: 20px;">
-                                <button onclick="window.print()" style="padding: 10px 20px;">طباعة</button>
-                            </div>
-                        </body>
-                        </html>
-                        """
-                        st.download_button(
-                            "📄 تحميل الملصق (HTML)",
-                            full_html,
-                            f"Label_{heat}_{now.strftime('%H%M%S')}.html",
-                            "text/html",
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("⚠️ لم يتم إدخال قياسات لأي Strand!")
-    
-    # تبويب لوحة التحكم
-    with tabs[1]:
-        st.header("📊 لوحة التحكم والإحصائيات")
-        
-        df = data_manager.get_data()
-        
-        if df.empty:
-            st.info("📭 لا توجد بيانات مسجلة بعد. ابدأ بإدخال بيانات جديدة من تبويب 'إدخال جديد'.")
-            
-            # بيانات تجريبية للعرض
-            st.divider()
-            st.caption("🎯 مثال على شكل لوحة التحكم:")
-            
-            col_demo = st.columns(4)
-            col_demo[0].metric("📊 الإجمالي", "0")
-            col_demo[1].metric("✅ المجتاز", "0")
-            col_demo[2].metric("❌ المرفوض", "0")
-            col_demo[3].metric("📈 النسبة", "0%")
-        else:
-            # الإحصائيات
-            total = len(df)
-            pass_count = len(df[df['status'] == 'PASS'])
-            reject_count = len(df[df['status'] == 'REJECT'])
-            pass_rate = (pass_count / total * 100) if total > 0 else 0
-            
-            cols = st.columns(4)
-            cols[0].metric("📊 إجمالي السجلات", total, help="عدد جميع القياسات المسجلة")
-            cols[1].metric("✅ المجتاز", pass_count, f"{pass_rate:.1f}%", delta_color="normal")
-            cols[2].metric("❌ المرفوض", reject_count, f"{100-pass_rate:.1f}%", delta_color="inverse")
-            cols[3].metric("📈 نسبة النجاح", f"{pass_rate:.1f}%", help="نسبة القياسات ضمن المعيار")
-            
-            st.divider()
-            
-            # الرسوم البيانية
-            col_chart1, col_chart2 = st.columns(2)
-            
-            with col_chart1:
-                st.subheader("📊 توزيع حالة الجودة")
-                status_counts = df['status'].value_counts()
-                
-                colors = {'PASS': '#28a745', 'REJECT': '#dc3545'}
-                fig_pie = px.pie(
-                    values=status_counts.values,
-                    names=status_counts.index,
-                    color=status_counts.index,
-                    color_discrete_map=colors,
-                    hole=0.4,
-                    title="نسبة المجتاز vs المرفوض"
-                )
-                fig_pie.update_traces(textinfo='percent+label', textfont_size=14)
-                st.plotly_chart(fig_pie, use_container_width=True)
-            
-            with col_chart2:
-                st.subheader("📈 توزيع قيم RH")
-                fig_hist = px.histogram(
-                    df, 
-                    x="rh", 
-                    color="status",
-                    nbins=20,
-                    color_discrete_map=colors,
-                    labels={'rh': 'قيمة RH (mm)', 'count': 'التكرار'},
-                    title="توزيع قيم الاختلاف"
-                )
-                fig_hist.add_vline(x=8.0, line_dash="dash", line_color="red", 
-                                  annotation_text="الحد الأقصى (8mm)")
-                st.plotly_chart(fig_hist, use_container_width=True)
-            
-            # رسم بياني للاتجاهات
-            st.subheader("📉 تطور الجودة عبر الزمن")
-            
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            daily_stats = df.groupby([df['timestamp'].dt.date, 'status']).size().unstack(fill_value=0)
-            
-            fig_trend = go.Figure()
-            if 'PASS' in daily_stats.columns:
-                fig_trend.add_trace(go.Scatter(
-                    x=daily_stats.index, 
-                    y=daily_stats['PASS'],
-                    mode='lines+markers',
-                    name='✅ PASS',
-                    line=dict(color='#28a745', width=3),
-                    fill='tozeroy'
-                ))
-            if 'REJECT' in daily_stats.columns:
-                fig_trend.add_trace(go.Scatter(
-                    x=daily_stats.index, 
-                    y=daily_stats['REJECT'],
-                    mode='lines+markers',
-                    name='❌ REJECT',
-                    line=dict(color='#dc3545', width=3)
-                ))
-            
-            fig_trend.update_layout(
-                xaxis_title="التاريخ",
-                yaxis_title="عدد القياسات",
-                hovermode='x unified',
-                legend=dict(orientation="h", yanchor="bottom", y=1.02)
-            )
-            st.plotly_chart(fig_trend, use_container_width=True)
-    
-    # تبويب البحث
-    with tabs[2]:
-        st.header("🔍 البحث والتقارير")
-        
-        df = data_manager.get_data()
-        
-        if df.empty:
-            st.info("📭 لا توجد بيانات للبحث")
-        else:
-            # فلاتر البحث
-            with st.expander("🔧 خيارات البحث", expanded=True):
-                col_search1, col_search2 = st.columns([2, 1])
-                
-                with col_search1:
-                    search_term = st.text_input(
-                        "🔍 بحث عام:",
-                        placeholder="رقم الصبة، اسم العامل، الموقع..."
-                    )
-                
-                with col_search2:
-                    status_filter = st.multiselect(
-                        "حالة الجودة:",
-                        options=['PASS', 'REJECT'],
-                        default=['PASS', 'REJECT']
-                    )
-            
-            # تطبيق الفلاتر
-            filtered_df = df.copy()
-            
-            if search_term:
-                mask = (
-                    filtered_df['heat'].astype(str).str.contains(search_term, case=False, na=False) |
-                    filtered_df['operator'].astype(str).str.contains(search_term, case=False, na=False) |
-                    filtered_df['storage_loc'].astype(str).str.contains(search_term, case=False, na=False) |
-                    filtered_df['ccm'].astype(str).str.contains(search_term, case=False, na=False)
-                )
-                filtered_df = filtered_df[mask]
-            
-            if status_filter:
-                filtered_df = filtered_df[filtered_df['status'].isin(status_filter)]
-            
-            # عرض النتائج
-            st.subheader(f"📋 النتائج: {len(filtered_df)} سجل")
-            
-            if len(filtered_df) > 0:
-                # تنسيق الجدول
-                display_df = filtered_df.copy()
-                if 'rh' in display_df.columns:
-                    display_df['rh'] = display_df['rh'].round(2)
-                
-                st.dataframe(
-                    display_df.sort_values('timestamp', ascending=False),
-                    use_container_width=True,
-                    height=min(600, 100 + (len(display_df) * 35)),
-                    column_config={
-                        'status': st.column_config.SelectboxColumn(
-                            "الحالة",
-                            options=['PASS', 'REJECT'],
-                            help="حالة الجودة"
-                        ),
-                        'rh': st.column_config.NumberColumn(
-                            "RH (mm)",
-                            format="%.2f",
-                            help="قيمة الفرق"
-                        ),
-                        'timestamp': st.column_config.DatetimeColumn(
-                            "التاريخ والوقت",
-                            format="YYYY-MM-DD HH:mm"
-                        )
-                    }
-                )
-                
-                # إحصائيات سريعة للنتائج
-                if len(filtered_df) > 0:
-                    col_stats = st.columns(3)
-                    col_stats[0].metric("النتائج المعروضة", len(filtered_df))
-                    col_stats[1].metric("المجتاز", len(filtered_df[filtered_df['status'] == 'PASS']))
-                    col_stats[2].metric("المرفوض", len(filtered_df[filtered_df['status'] == 'REJECT']))
-                
-                # تصدير النتائج
-                csv_results = filtered_df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    "📥 تصدير النتائج (CSV)",
-                    csv_results,
-                    f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    "text/csv",
-                    use_container_width=True
-                )
-            else:
-                st.warning("🔍 لا توجد نتائج مطابقة لمعايير البحث")
-
-
-if __name__ == "__main__":
-    main()
+                billet_count = st.number_input("⃜㤀⼆⼆ ✀䐆⠆䐆䨆⨆✆⨆∆Ⰰ 洀椀渀开瘀愀氀甀攀㴀㄀Ⰰ 洀愀砀开瘀愀氀甀攀㴀㄀　　Ⰰ 瘀愀氀甀攀㴀㐀　⤀਀                洀愀砀开戀漀砀攀猀 㴀 㤀 椀昀 愀爀攀愀 㴀㴀 ∀匀䴀匀∀ 攀氀猀攀 㔀਀                戀漀砀 㴀 猀琀⸀猀攀氀攀挀琀戀漀砀⠀∀㴀⃜✀䐆㔆䘆⼆䠆䈆∆Ⰰ 嬀昀∀䈀漀砀 笀椀紀∀ 昀漀爀 椀 椀渀 爀愀渀最攀⠀㄀Ⰰ 洀愀砀开戀漀砀攀猀⤀崀⤀਀                猀栀漀爀琀开氀 㴀 猀琀⸀渀甀洀戀攀爀开椀渀瀀甀琀⠀∀㴀쿘⃜匀栀漀爀琀 䈀椀氀氀攀琀 ⠀洀⤀∀Ⰰ 洀椀渀开瘀愀氀甀攀㴀　⸀　Ⰰ 洀愀砀开瘀愀氀甀攀㴀㄀㈀⸀　Ⰰ 瘀愀氀甀攀㴀　⸀　Ⰰ 猀琀攀瀀㴀　⸀㄀⤀਀਀            猀琀⸀搀椀瘀椀搀攀爀⠀⤀਀            猀琀⸀猀甀戀栀攀愀搀攀爀⠀∀㴀탘⃜䈀䨆✆㌆✆⨆ 匀琀爀愀渀搀猀 ⠀✀䐆ⴆ⼆ ✀䐆⌆䈆㔆䤆 䐀䐆䄆ㄆ䈆㨆 㠀洀洀⤀∀⤀਀਀            猀琀爀愀渀搀开搀愀琀愀开氀椀猀琀 㴀 嬀崀਀            猀琀爀愀渀搀开挀漀氀猀 㴀 猀琀⸀挀漀氀甀洀渀猀⠀㔀⤀਀਀            昀漀爀 椀 椀渀 爀愀渀最攀⠀㄀Ⰰ 㘀⤀㨀਀                眀椀琀栀 猀琀爀愀渀搀开挀漀氀猀嬀椀ⴀ㄀崀㨀਀                    猀琀⸀洀愀爀欀搀漀眀渀⠀昀∀⨀⨀匀琀爀愀渀搀 　笀椀紀⨀⨀∀⤀਀਀                    搀㄀ 㴀 猀琀⸀渀甀洀戀攀爀开椀渀瀀甀琀⠀昀∀䐀㄀ ⠀洀洀⤀∀Ⰰ 欀攀礀㴀昀∀搀㄀开笀椀紀∀Ⰰ 洀椀渀开瘀愀氀甀攀㴀　⸀　Ⰰ 洀愀砀开瘀愀氀甀攀㴀㈀　　⸀　Ⰰ 猀琀攀瀀㴀　⸀㄀Ⰰ 瘀愀氀甀攀㴀　⸀　Ⰰ 昀漀爀洀愀琀㴀∀─⸀㄀昀∀⤀਀                    搀㈀ 㴀 猀琀⸀渀甀洀戀攀爀开椀渀瀀甀琀⠀昀∀䐀㈀ ⠀洀洀⤀∀Ⰰ 欀攀礀㴀昀∀搀㈀开笀椀紀∀Ⰰ 洀椀渀开瘀愀氀甀攀㴀　⸀　Ⰰ 洀愀砀开瘀愀氀甀攀㴀㈀　　⸀　Ⰰ 猀琀攀瀀㴀　⸀㄀Ⰰ 瘀愀氀甀攀㴀　⸀　Ⰰ 昀漀爀洀愀琀㴀∀─⸀㄀昀∀⤀਀਀                    猀愀洀瀀氀攀 㴀 猀琀⸀挀栀攀挀欀戀漀砀⠀昀∀㸀⃝㤀䨆䘆⤆∆Ⰰ 欀攀礀㴀昀∀猀开笀椀紀∀⤀਀                    猀开渀漀 㴀 猀琀⸀琀攀砀琀开椀渀瀀甀琀⠀∀㄀䈆䔆 ✀䐆㤆䨆䘆⤆∆Ⰰ 欀攀礀㴀昀∀猀渀开笀椀紀∀Ⰰ 搀椀猀愀戀氀攀搀㴀渀漀琀 猀愀洀瀀氀攀⤀ 椀昀 猀愀洀瀀氀攀 攀氀猀攀 ∀∀਀਀                    猀琀爀愀渀搀 㴀 匀琀爀愀渀搀䐀愀琀愀⠀਀                        猀琀爀愀渀搀开椀搀㴀昀∀匀　笀椀紀∀Ⰰ਀                        搀㄀㴀搀㄀Ⰰ਀                        搀㈀㴀搀㈀Ⰰ਀                        猀愀洀瀀氀攀开琀愀欀攀渀㴀猀愀洀瀀氀攀Ⰰ਀                        猀愀洀瀀氀攀开渀漀㴀猀开渀漀਀                    ⤀਀                    猀琀爀愀渀搀开搀愀琀愀开氀椀猀琀⸀愀瀀瀀攀渀搀⠀猀琀爀愀渀搀⤀਀਀                    ⌀ 㤀ㄆ㘆 ✀䐆ⴆ✆䐆⤆ਆ                    椀昀 猀琀爀愀渀搀⸀搀㄀ 㸀 　 漀爀 猀琀爀愀渀搀⸀搀㈀ 㸀 　㨀਀                        猀琀愀琀甀猀开戀最 㴀 ∀⌀搀㐀攀搀搀愀∀ 椀昀 猀琀爀愀渀搀⸀猀琀愀琀甀猀 㴀㴀 ∀倀䄀匀匀∀ 攀氀猀攀 ∀⌀昀㠀搀㜀搀愀∀਀                        猀琀愀琀甀猀开挀漀氀漀爀 㴀 ∀⌀㄀㔀㔀㜀㈀㐀∀ 椀昀 猀琀爀愀渀搀⸀猀琀愀琀甀猀 㴀㴀 ∀倀䄀匀匀∀ 攀氀猀攀 ∀⌀㜀㈀㄀挀㈀㐀∀਀                        猀琀愀琀甀猀开椀挀漀渀 㴀 ∀㴀⋟ 椀昀 猀琀爀愀渀搀⸀猀琀愀琀甀猀 㴀㴀 ∀倀䄀匀匀∀ 攀氀猀攀 ∀㴀㓘⋝਀਀                        猀琀⸀洀愀爀欀搀漀眀渀⠀昀∀∀∀਀                        㰀搀椀瘀 猀琀礀氀攀㴀∀瀀愀搀搀椀渀最㨀 㠀瀀砀㬀 戀漀爀搀攀爀ⴀ爀愀搀椀甀猀㨀 㔀瀀砀㬀 戀愀挀欀最爀漀甀渀搀㨀 笀猀琀愀琀甀猀开戀最紀㬀 挀漀氀漀爀㨀 笀猀琀愀琀甀猀开挀漀氀漀爀紀㬀 琀攀砀琀ⴀ愀氀椀最渀㨀 挀攀渀琀攀爀㬀 洀愀爀最椀渀ⴀ琀漀瀀㨀 㔀瀀砀㬀∀㸀਀                            㰀猀洀愀氀氀㸀笀猀琀愀琀甀猀开椀挀漀渀紀 㰀戀㸀刀䠀㨀 笀猀琀爀愀渀搀⸀爀栀紀洀洀㰀⼀戀㸀㰀戀爀㸀笀猀琀爀愀渀搀⸀猀琀愀琀甀猀紀㰀⼀猀洀愀氀氀㸀਀                        㰀⼀搀椀瘀㸀਀                        ∀∀∀Ⰰ 甀渀猀愀昀攀开愀氀氀漀眀开栀琀洀氀㴀吀爀甀攀⤀਀਀            猀琀⸀搀椀瘀椀搀攀爀⠀⤀਀਀            挀漀氀开猀甀戀洀椀琀Ⰰ 挀漀氀开挀氀攀愀爀 㴀 猀琀⸀挀漀氀甀洀渀猀⠀嬀㌀Ⰰ ㄀崀⤀਀            眀椀琀栀 挀漀氀开猀甀戀洀椀琀㨀਀                猀甀戀洀椀琀琀攀搀 㴀 猀琀⸀昀漀爀洀开猀甀戀洀椀琀开戀甀琀琀漀渀⠀∀㴀뻘⃜ⴀ䄆㠆 ✀䐆⠆䨆✆䘆✆⨆ ⬀ 㤀ㄆ㘆 ✀䐆䔆䐆㔆䈆∆Ⰰ 甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀Ⰰ 琀礀瀀攀㴀∀瀀爀椀洀愀爀礀∀⤀਀਀            椀昀 猀甀戀洀椀琀琀攀搀㨀਀                ⌀ ✀䐆⨆ⴆ䈆䈆 䔀䘆 ✀䐆⠆䨆✆䘆✆⨆ਆ                椀昀 渀漀琀 栀攀愀琀㨀਀                    猀琀⸀攀爀爀漀爀⠀∀䰀‧䨀Ⰶ⠆ ─⼆⸆✆䐆 ㄀䈆䔆 ✀䐆㔆⠆⤆ ⠀䠀攀愀琀 一漀⤀℀∀⤀਀                攀氀椀昀 渀漀琀 漀瀀攀爀愀琀漀爀㨀਀                    猀琀⸀攀爀爀漀爀⠀∀䰀‧䨀Ⰶ⠆ ─⼆⸆✆䐆 ✀㌆䔆 ✀䐆㤆✆䔆䐆℆∀⤀਀                攀氀猀攀㨀਀                    ⌀ ─䘆㐆✆℆ ✀䐆㌆Ⰶ䐆✆⨆ਆ                    渀漀眀 㴀 搀愀琀攀琀椀洀攀⸀渀漀眀⠀⤀਀                    爀攀挀漀爀搀猀 㴀 嬀崀਀਀                    昀漀爀 猀琀爀愀渀搀 椀渀 猀琀爀愀渀搀开搀愀琀愀开氀椀猀琀㨀਀                        椀昀 猀琀爀愀渀搀⸀搀㄀ 㸀 　 漀爀 猀琀爀愀渀搀⸀搀㈀ 㸀 　㨀਀                            爀攀挀漀爀搀 㴀 倀爀漀搀甀挀琀椀漀渀刀攀挀漀爀搀⠀਀                                琀椀洀攀猀琀愀洀瀀㴀渀漀眀⸀猀琀爀昀琀椀洀攀⠀∀─夀ⴀ─洀ⴀ─搀 ─䠀㨀─䴀㨀─匀∀⤀Ⰰ਀                                搀愀琀攀开漀渀氀礀㴀渀漀眀⸀猀琀爀昀琀椀洀攀⠀∀─夀ⴀ─洀ⴀ─搀∀⤀Ⰰ਀                                琀椀洀攀开漀渀氀礀㴀渀漀眀⸀猀琀爀昀琀椀洀攀⠀∀─䠀㨀─䴀㨀─匀∀⤀Ⰰ਀                                猀栀椀昀琀㴀猀栀椀昀琀Ⰰ਀                                漀瀀攀爀愀琀漀爀㴀漀瀀攀爀愀琀漀爀Ⰰ਀                                椀渀猀瀀攀挀琀漀爀㴀∀䄀搀洀椀渀∀Ⰰ਀                                挀挀洀㴀挀挀洀Ⰰ਀                                栀攀愀琀㴀栀攀愀琀Ⰰ਀                                最爀愀搀攀㴀最爀愀搀攀Ⰰ਀                                猀琀爀愀渀搀㴀猀琀爀愀渀搀⸀猀琀爀愀渀搀开椀搀Ⰰ਀                                爀栀㴀猀琀爀愀渀搀⸀爀栀Ⰰ਀                                猀琀愀琀甀猀㴀猀琀爀愀渀搀⸀猀琀愀琀甀猀Ⰰ਀                                搀㄀㴀猀琀爀愀渀搀⸀搀㄀Ⰰ਀                                搀㈀㴀猀琀爀愀渀搀⸀搀㈀Ⰰ਀                                戀椀氀氀攀琀开挀漀甀渀琀㴀戀椀氀氀攀琀开挀漀甀渀琀Ⰰ਀                                猀琀漀爀愀最攀开氀漀挀㴀昀∀笀愀爀攀愀紀 ⠀笀戀漀砀紀⤀∀Ⰰ਀                                猀栀漀爀琀开戀椀氀氀攀琀开氀攀渀最琀栀㴀猀栀漀爀琀开氀Ⰰ਀                                猀愀洀瀀氀攀开椀渀昀漀㴀昀∀笀猀琀爀愀渀搀⸀猀琀爀愀渀搀开椀搀紀ⴀ⌀笀猀琀爀愀渀搀⸀猀愀洀瀀氀攀开渀漀紀∀ 椀昀 猀琀爀愀渀搀⸀猀愀洀瀀氀攀开琀愀欀攀渀 攀氀猀攀 ∀一漀渀攀∀਀                            ⤀਀                            爀攀挀漀爀搀猀⸀愀瀀瀀攀渀搀⠀爀攀挀漀爀搀⸀琀漀开搀椀挀琀⠀⤀⤀਀਀                    椀昀 爀攀挀漀爀搀猀㨀਀                        ⌀ ⴀ䄆㠆 ✀䐆⠆䨆✆䘆✆⨆ਆ                        搀愀琀愀开洀愀渀愀最攀爀⸀愀搀搀开爀攀挀漀爀搀猀⠀爀攀挀漀爀搀猀⤀਀                        猀琀⸀猀甀挀挀攀猀猀⠀昀∀Ԁ‧⨀䔆 ⴀ䄆㠆 笀氀攀渀⠀爀攀挀漀爀搀猀⤀紀 ㌀Ⰶ䐆 ⠀䘆Ⰶ✆ⴆ℆∀⤀਀਀                        ⌀ 㤀ㄆ㘆 ✀䐆䔆䐆㔆䈆ਆ                        氀愀戀攀氀开栀琀洀氀 㴀 最攀渀攀爀愀琀攀开氀愀戀攀氀开栀琀洀氀⠀਀                            栀攀愀琀Ⰰ 最爀愀搀攀Ⰰ 挀挀洀Ⰰ 渀漀眀⸀猀琀爀昀琀椀洀攀⠀∀─夀ⴀ─洀ⴀ─搀∀⤀Ⰰ਀                            昀∀笀愀爀攀愀紀 ⠀笀戀漀砀紀⤀∀Ⰰ 戀椀氀氀攀琀开挀漀甀渀琀Ⰰ 猀栀漀爀琀开氀Ⰰ 猀琀爀愀渀搀开搀愀琀愀开氀椀猀琀਀                        ⤀਀਀                        猀琀⸀洀愀爀欀搀漀眀渀⠀∀⌀⌀⌀ 㰀࿟⃾䔀㤆✆䨆䘆⤆ ✀䐆䔆䐆㔆䈆㨆∀⤀਀                        猀琀⸀洀愀爀欀搀漀眀渀⠀氀愀戀攀氀开栀琀洀氀Ⰰ 甀渀猀愀昀攀开愀氀氀漀眀开栀琀洀氀㴀吀爀甀攀⤀਀਀                        ⌀ ㈀ㄆ ✀䐆㜆⠆✆㤆⤆ 䔀㤆 䨀愀瘀愀匀挀爀椀瀀琀਀                        瀀爀椀渀琀开戀甀琀琀漀渀开椀搀 㴀 ∀瀀爀椀渀琀开戀甀琀琀漀渀∀਀                        猀琀⸀挀漀洀瀀漀渀攀渀琀猀⸀瘀㄀⸀栀琀洀氀⠀昀∀∀∀਀                        㰀搀椀瘀 猀琀礀氀攀㴀∀琀攀砀琀ⴀ愀氀椀最渀㨀 挀攀渀琀攀爀㬀 洀愀爀最椀渀ⴀ琀漀瀀㨀 ㄀　瀀砀㬀∀㸀਀                            㰀戀甀琀琀漀渀 漀渀挀氀椀挀欀㴀∀眀椀渀搀漀眀⸀瀀爀椀渀琀⠀⤀∀ 椀搀㴀∀笀瀀爀椀渀琀开戀甀琀琀漀渀开椀搀紀∀਀                                    猀琀礀氀攀㴀∀瀀愀搀搀椀渀最㨀 ㄀㈀瀀砀 ㈀㐀瀀砀㬀 戀愀挀欀最爀漀甀渀搀㨀 ⌀㈀愀㔀㈀㤀㠀㬀 挀漀氀漀爀㨀 眀栀椀琀攀㬀 戀漀爀搀攀爀㨀 渀漀渀攀㬀 戀漀爀搀攀爀ⴀ爀愀搀椀甀猀㨀 㠀瀀砀㬀 挀甀爀猀漀爀㨀 瀀漀椀渀琀攀爀㬀 昀漀渀琀ⴀ猀椀稀攀㨀 ㄀㘀瀀砀㬀∀㸀਀                                㴀꣘࿝⃾㜀⠆✆㤆⤆ ✀䐆䔆䐆㔆䈆ਆ                            㰀⼀戀甀琀琀漀渀㸀਀                        㰀⼀搀椀瘀㸀਀                        ∀∀∀Ⰰ 栀攀椀最栀琀㴀㘀　⤀਀਀                        ⌀ ⨀ⴆ䔆䨆䐆 ✀䐆䔆䐆㔆䈆 䌀䀆 䠀吀䴀䰀਀                        昀甀氀氀开栀琀洀氀 㴀 昀∀∀∀਀                        㰀℀䐀伀䌀吀夀倀䔀 栀琀洀氀㸀਀                        㰀栀琀洀氀 搀椀爀㴀∀氀琀爀∀㸀਀                        㰀栀攀愀搀㸀਀                            㰀洀攀琀愀 挀栀愀爀猀攀琀㴀∀唀吀䘀ⴀ㠀∀㸀਀                            㰀琀椀琀氀攀㸀䰀愀戀攀氀 笀栀攀愀琀紀㰀⼀琀椀琀氀攀㸀਀                            㰀猀琀礀氀攀㸀਀                                䀀洀攀搀椀愀 瀀爀椀渀琀 笀笀਀                                    戀漀搀礀 笀笀 洀愀爀最椀渀㨀 　㬀 紀紀਀                                紀紀਀                                戀甀琀琀漀渀 笀笀 搀椀猀瀀氀愀礀㨀 渀漀渀攀㬀 紀紀਀                            㰀⼀猀琀礀氀攀㸀਀                        㰀⼀栀攀愀搀㸀਀                        㰀戀漀搀礀㸀਀                            笀氀愀戀攀氀开栀琀洀氀紀਀                            㰀搀椀瘀 猀琀礀氀攀㴀∀琀攀砀琀ⴀ愀氀椀最渀㨀 挀攀渀琀攀爀㬀 洀愀爀最椀渀ⴀ琀漀瀀㨀 ㈀　瀀砀㬀∀㸀਀                                㰀戀甀琀琀漀渀 漀渀挀氀椀挀欀㴀∀眀椀渀搀漀眀⸀瀀爀椀渀琀⠀⤀∀ 猀琀礀氀攀㴀∀瀀愀搀搀椀渀最㨀 ㄀　瀀砀 ㈀　瀀砀㬀 戀愀挀欀最爀漀甀渀搀㨀 ⌀㈀愀㔀㈀㤀㠀㬀 挀漀氀漀爀㨀 眀栀椀琀攀㬀 戀漀爀搀攀爀㨀 渀漀渀攀㬀 戀漀爀搀攀爀ⴀ爀愀搀椀甀猀㨀 㔀瀀砀㬀 挀甀爀猀漀爀㨀 瀀漀椀渀琀攀爀㬀∀㸀਀                                    㜀⠆✆㤆⤆ਆ                                㰀⼀戀甀琀琀漀渀㸀਀                            㰀⼀搀椀瘀㸀਀                        㰀⼀戀漀搀礀㸀਀                        㰀⼀栀琀洀氀㸀਀                        ∀∀∀਀                        猀琀⸀搀漀眀渀氀漀愀搀开戀甀琀琀漀渀⠀਀                            ∀㴀쓘⃜⨀ⴆ䔆䨆䐆 ✀䐆䔆䐆㔆䈆 ⠀䠀吀䴀䰀⤀∀Ⰰ਀                            昀甀氀氀开栀琀洀氀Ⰰ਀                            昀∀䰀愀戀攀氀开笀栀攀愀琀紀开笀渀漀眀⸀猀琀爀昀琀椀洀攀⠀✀─䠀─䴀─匀✀⤀紀⸀栀琀洀氀∀Ⰰ਀                            ∀琀攀砀琀⼀栀琀洀氀∀Ⰰ਀                            甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀਀                        ⤀਀                    攀氀猀攀㨀਀                        猀琀⸀眀愀爀渀椀渀最⠀∀ꀀ༦⃾䐀䔆 䨀⨆䔆 ─⼆⸆✆䐆 䈀䨆✆㌆✆⨆ 䐀⌆䨆 匀琀爀愀渀搀℀∀⤀਀਀    ⌀ ⨀⠆䠆䨆⠆ 䐀䠆ⴆ⤆ ✀䐆⨆ⴆ䌆䔆ਆ    眀椀琀栀 琀愀戀猀嬀㄀崀㨀਀        猀琀⸀栀攀愀搀攀爀⠀∀㴀쫘⃜䐀䠆ⴆ⤆ ✀䐆⨆ⴆ䌆䔆 䠀✆䐆┆ⴆ㔆✆☆䨆✆⨆∆⤀਀਀        搀昀 㴀 搀愀琀愀开洀愀渀愀最攀爀⸀最攀琀开搀愀琀愀⠀⤀਀਀        椀昀 搀昀⸀攀洀瀀琀礀㨀਀            猀琀⸀椀渀昀漀⠀∀㴀⃜䐀✆ ⨀䠆Ⰶ⼆ ⠀䨆✆䘆✆⨆ 䔀㌆Ⰶ䐆⤆ ⠀㤆⼆⸆ ✀⠆⼆⌆ ⠀┆⼆⸆✆䐆 ⠀䨆✆䘆✆⨆ Ⰰ⼆䨆⼆⤆ 䔀䘆 ⨀⠆䠆䨆⠆ ✀─⼆⸆✆䐆 Ⰰ⼆䨆⼆✆⸀∀⤀਀਀            ⌀ ⠀䨆✆䘆✆⨆ ⨀Ⰶㄆ䨆⠆䨆⤆ 䐀䐆㤆ㄆ㘆ਆ            猀琀⸀搀椀瘀椀搀攀爀⠀⤀਀            猀琀⸀挀愀瀀琀椀漀渀⠀∀㰀꿘⃟䔀⬆✆䐆 㤀䐆䤆 㐀䌆䐆 䐀䠆ⴆ⤆ ✀䐆⨆ⴆ䌆䔆㨆∀⤀਀਀            挀漀氀开搀攀洀漀 㴀 猀琀⸀挀漀氀甀洀渀猀⠀㐀⤀਀            挀漀氀开搀攀洀漀嬀　崀⸀洀攀琀爀椀挀⠀∀㴀쫘⃜✀䐆┆Ⰶ䔆✆䐆䨆∆Ⰰ ∀　∀⤀਀            挀漀氀开搀攀洀漀嬀㄀崀⸀洀攀琀爀椀挀⠀∀Ԁ‧✀䐆䔆Ⰶ⨆✆㈆∆Ⰰ ∀　∀⤀਀            挀漀氀开搀攀洀漀嬀㈀崀⸀洀攀琀爀椀挀⠀∀䰀‧✀䐆䔆ㄆ䄆䠆㘆∆Ⰰ ∀　∀⤀਀            挀漀氀开搀攀洀漀嬀㌀崀⸀洀攀琀爀椀挀⠀∀㴀죘⃜✀䐆䘆㌆⠆⤆∆Ⰰ ∀　─∀⤀਀        攀氀猀攀㨀਀            ⌀ ✀䐆┆ⴆ㔆✆☆䨆✆⨆ਆ            琀漀琀愀氀 㴀 氀攀渀⠀搀昀⤀਀            瀀愀猀猀开挀漀甀渀琀 㴀 氀攀渀⠀搀昀嬀搀昀嬀✀猀琀愀琀甀猀✀崀 㴀㴀 ✀倀䄀匀匀✀崀⤀਀            爀攀樀攀挀琀开挀漀甀渀琀 㴀 氀攀渀⠀搀昀嬀搀昀嬀✀猀琀愀琀甀猀✀崀 㴀㴀 ✀刀䔀䨀䔀䌀吀✀崀⤀਀            瀀愀猀猀开爀愀琀攀 㴀 ⠀瀀愀猀猀开挀漀甀渀琀 ⼀ 琀漀琀愀氀 ⨀ ㄀　　⤀ 椀昀 琀漀琀愀氀 㸀 　 攀氀猀攀 　਀਀            挀漀氀猀 㴀 猀琀⸀挀漀氀甀洀渀猀⠀㐀⤀਀            挀漀氀猀嬀　崀⸀洀攀琀爀椀挀⠀∀㴀쫘⃜─Ⰶ䔆✆䐆䨆 ✀䐆㌆Ⰶ䐆✆⨆∆Ⰰ 琀漀琀愀氀Ⰰ 栀攀氀瀀㴀∀㤀⼆⼆ Ⰰ䔆䨆㤆 ✀䐆䈆䨆✆㌆✆⨆ ✀䐆䔆㌆Ⰶ䐆⤆∆⤀਀            挀漀氀猀嬀㄀崀⸀洀攀琀爀椀挀⠀∀Ԁ‧✀䐆䔆Ⰶ⨆✆㈆∆Ⰰ 瀀愀猀猀开挀漀甀渀琀Ⰰ 昀∀笀瀀愀猀猀开爀愀琀攀㨀⸀㄀昀紀─∀⤀਀            挀漀氀猀嬀㈀崀⸀洀攀琀爀椀挀⠀∀䰀‧✀䐆䔆ㄆ䄆䠆㘆∆Ⰰ 爀攀樀攀挀琀开挀漀甀渀琀Ⰰ 昀∀笀㄀　　ⴀ瀀愀猀猀开爀愀琀攀㨀⸀㄀昀紀─∀⤀਀            挀漀氀猀嬀㌀崀⸀洀攀琀爀椀挀⠀∀㴀죘⃜䘀㌆⠆⤆ ✀䐆䘆Ⰶ✆ⴆ∆Ⰰ 昀∀笀瀀愀猀猀开爀愀琀攀㨀⸀㄀昀紀─∀Ⰰ 栀攀氀瀀㴀∀䘀㌆⠆⤆ ✀䐆䈆䨆✆㌆✆⨆ 㘀䔆䘆 ✀䐆䔆㤆䨆✆ㄆ∆⤀਀਀            猀琀⸀搀椀瘀椀搀攀爀⠀⤀਀਀            ⌀ ✀䐆ㄆ㌆䠆䔆 ✀䐆⠆䨆✆䘆䨆⤆ਆ            挀漀氀开挀栀愀爀琀㄀Ⰰ 挀漀氀开挀栀愀爀琀㈀ 㴀 猀琀⸀挀漀氀甀洀渀猀⠀㈀⤀਀਀            眀椀琀栀 挀漀氀开挀栀愀爀琀㄀㨀਀                猀琀⸀猀甀戀栀攀愀搀攀爀⠀∀㴀쫘⃜⨀䠆㈆䨆㤆 ⴀ✆䐆⤆ ✀䐆Ⰶ䠆⼆⤆∆⤀਀                猀琀愀琀甀猀开挀漀甀渀琀猀 㴀 搀昀嬀✀猀琀愀琀甀猀✀崀⸀瘀愀氀甀攀开挀漀甀渀琀猀⠀⤀਀਀                挀漀氀漀爀猀 㴀 笀✀倀䄀匀匀✀㨀 ✀⌀㈀㠀愀㜀㐀㔀✀Ⰰ ✀刀䔀䨀䔀䌀吀✀㨀 ✀⌀搀挀㌀㔀㐀㔀✀紀਀                昀椀最开瀀椀攀 㴀 瀀砀⸀瀀椀攀⠀਀                    瘀愀氀甀攀猀㴀猀琀愀琀甀猀开挀漀甀渀琀猀⸀瘀愀氀甀攀猀Ⰰ਀                    渀愀洀攀猀㴀猀琀愀琀甀猀开挀漀甀渀琀猀⸀椀渀搀攀砀Ⰰ਀                    挀漀氀漀爀㴀猀琀愀琀甀猀开挀漀甀渀琀猀⸀椀渀搀攀砀Ⰰ਀                    挀漀氀漀爀开搀椀猀挀爀攀琀攀开洀愀瀀㴀挀漀氀漀爀猀Ⰰ਀                    栀漀氀攀㴀　⸀㐀Ⰰ਀                    琀椀琀氀攀㴀∀䘀㌆⠆⤆ ✀䐆䔆Ⰶ⨆✆㈆ 瘀猀 ✀䐆䔆ㄆ䄆䠆㘆∆਀                ⤀਀                昀椀最开瀀椀攀⸀甀瀀搀愀琀攀开琀爀愀挀攀猀⠀琀攀砀琀椀渀昀漀㴀✀瀀攀爀挀攀渀琀⬀氀愀戀攀氀✀Ⰰ 琀攀砀琀昀漀渀琀开猀椀稀攀㴀㄀㐀⤀਀                猀琀⸀瀀氀漀琀氀礀开挀栀愀爀琀⠀昀椀最开瀀椀攀Ⰰ 甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀⤀਀਀            眀椀琀栀 挀漀氀开挀栀愀爀琀㈀㨀਀                猀琀⸀猀甀戀栀攀愀搀攀爀⠀∀㴀죘⃜⨀䠆㈆䨆㤆 䈀䨆䔆 刀䠀∀⤀਀                昀椀最开栀椀猀琀 㴀 瀀砀⸀栀椀猀琀漀最爀愀洀⠀਀                    搀昀Ⰰ਀                    砀㴀∀爀栀∀Ⰰ਀                    挀漀氀漀爀㴀∀猀琀愀琀甀猀∀Ⰰ਀                    渀戀椀渀猀㴀㈀　Ⰰ਀                    挀漀氀漀爀开搀椀猀挀爀攀琀攀开洀愀瀀㴀挀漀氀漀爀猀Ⰰ਀                    氀愀戀攀氀猀㴀笀✀爀栀✀㨀 ✀䈀䨆䔆⤆ 刀䠀 ⠀洀洀⤀✀Ⰰ ✀挀漀甀渀琀✀㨀 ✀✀䐆⨆䌆ㄆ✆ㄆ✆紀Ⰰ਀                    琀椀琀氀攀㴀∀⨀䠆㈆䨆㤆 䈀䨆䔆 ✀䐆✆⸆⨆䐆✆䄆∆਀                ⤀਀                昀椀最开栀椀猀琀⸀愀搀搀开瘀氀椀渀攀⠀砀㴀㠀⸀　Ⰰ 氀椀渀攀开搀愀猀栀㴀∀搀愀猀栀∀Ⰰ 氀椀渀攀开挀漀氀漀爀㴀∀爀攀搀∀Ⰰ਀                                  愀渀渀漀琀愀琀椀漀渀开琀攀砀琀㴀∀✀䐆ⴆ⼆ ✀䐆⌆䈆㔆䤆 ⠀㠀洀洀⤀∀⤀਀                猀琀⸀瀀氀漀琀氀礀开挀栀愀爀琀⠀昀椀最开栀椀猀琀Ⰰ 甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀⤀਀਀            ⌀ ㄀㌆䔆 ⠀䨆✆䘆䨆 䐀䐆✆⨆Ⰶ✆䜆✆⨆ਆ            猀琀⸀猀甀戀栀攀愀搀攀爀⠀∀㴀짘⃜⨀㜆䠆ㄆ ✀䐆Ⰶ䠆⼆⤆ 㤀⠆ㄆ ✀䐆㈆䔆䘆∆⤀਀਀            搀昀开挀漀瀀礀 㴀 搀昀⸀挀漀瀀礀⠀⤀਀            搀昀开挀漀瀀礀嬀✀琀椀洀攀猀琀愀洀瀀✀崀 㴀 瀀搀⸀琀漀开搀愀琀攀琀椀洀攀⠀搀昀开挀漀瀀礀嬀✀琀椀洀攀猀琀愀洀瀀✀崀⤀਀            搀愀椀氀礀开猀琀愀琀猀 㴀 搀昀开挀漀瀀礀⸀最爀漀甀瀀戀礀⠀嬀搀昀开挀漀瀀礀嬀✀琀椀洀攀猀琀愀洀瀀✀崀⸀搀琀⸀搀愀琀攀Ⰰ ✀猀琀愀琀甀猀✀崀⤀⸀猀椀稀攀⠀⤀⸀甀渀猀琀愀挀欀⠀昀椀氀氀开瘀愀氀甀攀㴀　⤀਀਀            昀椀最开琀爀攀渀搀 㴀 最漀⸀䘀椀最甀爀攀⠀⤀਀            椀昀 ✀倀䄀匀匀✀ 椀渀 搀愀椀氀礀开猀琀愀琀猀⸀挀漀氀甀洀渀猀㨀਀                昀椀最开琀爀攀渀搀⸀愀搀搀开琀爀愀挀攀⠀最漀⸀匀挀愀琀琀攀爀⠀਀                    砀㴀搀愀椀氀礀开猀琀愀琀猀⸀椀渀搀攀砀Ⰰ਀                    礀㴀搀愀椀氀礀开猀琀愀琀猀嬀✀倀䄀匀匀✀崀Ⰰ਀                    洀漀搀攀㴀✀氀椀渀攀猀⬀洀愀爀欀攀爀猀✀Ⰰ਀                    渀愀洀攀㴀✀倀䄀匀匀✀Ⰰ਀                    氀椀渀攀㴀搀椀挀琀⠀挀漀氀漀爀㴀✀⌀㈀㠀愀㜀㐀㔀✀Ⰰ 眀椀搀琀栀㴀㌀⤀Ⰰ਀                    昀椀氀氀㴀✀琀漀稀攀爀漀礀✀਀                ⤀⤀਀            椀昀 ✀刀䔀䨀䔀䌀吀✀ 椀渀 搀愀椀氀礀开猀琀愀琀猀⸀挀漀氀甀洀渀猀㨀਀                昀椀最开琀爀攀渀搀⸀愀搀搀开琀爀愀挀攀⠀最漀⸀匀挀愀琀琀攀爀⠀਀                    砀㴀搀愀椀氀礀开猀琀愀琀猀⸀椀渀搀攀砀Ⰰ਀                    礀㴀搀愀椀氀礀开猀琀愀琀猀嬀✀刀䔀䨀䔀䌀吀✀崀Ⰰ਀                    洀漀搀攀㴀✀氀椀渀攀猀⬀洀愀爀欀攀爀猀✀Ⰰ਀                    渀愀洀攀㴀✀刀䔀䨀䔀䌀吀✀Ⰰ਀                    氀椀渀攀㴀搀椀挀琀⠀挀漀氀漀爀㴀✀⌀搀挀㌀㔀㐀㔀✀Ⰰ 眀椀搀琀栀㴀㌀⤀਀                ⤀⤀਀਀            昀椀最开琀爀攀渀搀⸀甀瀀搀愀琀攀开氀愀礀漀甀琀⠀਀                琀椀琀氀攀㴀∀⨀㜆䠆ㄆ ✀䐆Ⰶ䠆⼆⤆ 㤀⠆ㄆ ✀䐆㈆䔆䘆∆Ⰰ਀                砀愀砀椀猀开琀椀琀氀攀㴀∀✀䐆⨆✆ㄆ䨆⸆∆Ⰰ਀                礀愀砀椀猀开琀椀琀氀攀㴀∀㤀⼆⼆ ✀䐆䈆䨆✆㌆✆⨆∆Ⰰ਀                栀漀瘀攀爀洀漀搀攀㴀✀砀 甀渀椀昀椀攀搀✀Ⰰ਀                氀攀最攀渀搀㴀搀椀挀琀⠀漀爀椀攀渀琀愀琀椀漀渀㴀∀栀∀Ⰰ 礀愀渀挀栀漀爀㴀∀戀漀琀琀漀洀∀Ⰰ 礀㴀㄀⸀　㈀⤀਀            ⤀਀            猀琀⸀瀀氀漀琀氀礀开挀栀愀爀琀⠀昀椀最开琀爀攀渀搀Ⰰ 甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀⤀਀਀    ⌀ ⨀⠆䠆䨆⠆ ✀䐆⠆ⴆ⬆ਆ    眀椀琀栀 琀愀戀猀嬀㈀崀㨀਀        猀琀⸀栀攀愀搀攀爀⠀∀㴀ෘ⃝✀䐆⠆ⴆ⬆ 䠀✆䐆⨆䈆✆ㄆ䨆ㄆ∆⤀਀਀        搀昀 㴀 搀愀琀愀开洀愀渀愀最攀爀⸀最攀琀开搀愀琀愀⠀⤀਀਀        椀昀 搀昀⸀攀洀瀀琀礀㨀਀            猀琀⸀椀渀昀漀⠀∀㴀⃜䐀✆ ⨀䠆Ⰶ⼆ ⠀䨆✆䘆✆⨆ 䐀䐆⠆ⴆ⬆∆⤀਀        攀氀猀攀㨀਀            ⌀ 䄀䐆✆⨆ㄆ ✀䐆⠆ⴆ⬆ਆ            眀椀琀栀 猀琀⸀攀砀瀀愀渀搀攀爀⠀∀㴀⟘⃝⸀䨆✆ㄆ✆⨆ ✀䐆⠆ⴆ⬆∆Ⰰ 攀砀瀀愀渀搀攀搀㴀吀爀甀攀⤀㨀਀                挀漀氀开猀攀愀爀挀栀㄀Ⰰ 挀漀氀开猀攀愀爀挀栀㈀ 㴀 猀琀⸀挀漀氀甀洀渀猀⠀嬀㈀Ⰰ ㄀崀⤀਀਀                眀椀琀栀 挀漀氀开猀攀愀爀挀栀㄀㨀਀                    猀攀愀爀挀栀开琀攀爀洀 㴀 猀琀⸀琀攀砀琀开椀渀瀀甀琀⠀਀                        ∀㴀ෘ⃝⠀ⴆ⬆ 㤀✆䔆㨆∀Ⰰ਀                        瀀氀愀挀攀栀漀氀搀攀爀㴀∀㄀䈆䔆 ✀䐆㔆⠆⤆ఆ ✀㌆䔆 ✀䐆㤆✆䔆䐆ఆ ✀䐆䔆䠆䈆㤆⸆⸀⸀∀਀                    ⤀਀਀                眀椀琀栀 挀漀氀开猀攀愀爀挀栀㈀㨀਀                    猀琀愀琀甀猀开昀椀氀琀攀爀 㴀 猀琀⸀洀甀氀琀椀猀攀氀攀挀琀⠀਀                        ∀ⴀ✆䐆⤆ ✀䐆Ⰶ䠆⼆⤆㨆∀Ⰰ਀                        漀瀀琀椀漀渀猀㴀嬀✀倀䄀匀匀✀Ⰰ ✀刀䔀䨀䔀䌀吀✀崀Ⰰ਀                        搀攀昀愀甀氀琀㴀嬀✀倀䄀匀匀✀Ⰰ ✀刀䔀䨀䔀䌀吀✀崀਀                    ⤀਀਀            ⌀ ⨀㜆⠆䨆䈆 ✀䐆䄆䐆✆⨆ㄆਆ            昀椀氀琀攀爀攀搀开搀昀 㴀 搀昀⸀挀漀瀀礀⠀⤀਀਀            椀昀 猀攀愀爀挀栀开琀攀爀洀㨀਀                洀愀猀欀 㴀 ⠀਀                    昀椀氀琀攀爀攀搀开搀昀嬀✀栀攀愀琀✀崀⸀愀猀琀礀瀀攀⠀猀琀爀⤀⸀猀琀爀⸀挀漀渀琀愀椀渀猀⠀猀攀愀爀挀栀开琀攀爀洀Ⰰ 挀愀猀攀㴀䘀愀氀猀攀Ⰰ 渀愀㴀䘀愀氀猀攀⤀ 簀਀                    昀椀氀琀攀爀攀搀开搀昀嬀✀漀瀀攀爀愀琀漀爀✀崀⸀愀猀琀礀瀀攀⠀猀琀爀⤀⸀猀琀爀⸀挀漀渀琀愀椀渀猀⠀猀攀愀爀挀栀开琀攀爀洀Ⰰ 挀愀猀攀㴀䘀愀氀猀攀Ⰰ 渀愀㴀䘀愀氀猀攀⤀ 簀਀                    昀椀氀琀攀爀攀搀开搀昀嬀✀猀琀漀爀愀最攀开氀漀挀✀崀⸀愀猀琀礀瀀攀⠀猀琀爀⤀⸀猀琀爀⸀挀漀渀琀愀椀渀猀⠀猀攀愀爀挀栀开琀攀爀洀Ⰰ 挀愀猀攀㴀䘀愀氀猀攀Ⰰ 渀愀㴀䘀愀氀猀攀⤀ 簀਀                    昀椀氀琀攀爀攀搀开搀昀嬀✀挀挀洀✀崀⸀愀猀琀礀瀀攀⠀猀琀爀⤀⸀猀琀爀⸀挀漀渀琀愀椀渀猀⠀猀攀愀爀挀栀开琀攀爀洀Ⰰ 挀愀猀攀㴀䘀愀氀猀攀Ⰰ 渀愀㴀䘀愀氀猀攀⤀਀                ⤀਀                昀椀氀琀攀爀攀搀开搀昀 㴀 昀椀氀琀攀爀攀搀开搀昀嬀洀愀猀欀崀਀਀            椀昀 猀琀愀琀甀猀开昀椀氀琀攀爀㨀਀                昀椀氀琀攀爀攀搀开搀昀 㴀 昀椀氀琀攀爀攀搀开搀昀嬀昀椀氀琀攀爀攀搀开搀昀嬀✀猀琀愀琀甀猀✀崀⸀椀猀椀渀⠀猀琀愀琀甀猀开昀椀氀琀攀爀⤀崀਀਀            ⌀ 㤀ㄆ㘆 ✀䐆䘆⨆✆☆Ⰶਆ            猀琀⸀猀甀戀栀攀愀搀攀爀⠀昀∀㴀쯘⃜✀䐆䘆⨆✆☆Ⰶ㨆 笀氀攀渀⠀昀椀氀琀攀爀攀搀开搀昀⤀紀 ㌀Ⰶ䐆∆⤀਀਀            椀昀 氀攀渀⠀昀椀氀琀攀爀攀搀开搀昀⤀ 㸀 　㨀਀                ⌀ ⨀䘆㌆䨆䈆 ✀䐆Ⰶ⼆䠆䐆ਆ                搀椀猀瀀氀愀礀开搀昀 㴀 昀椀氀琀攀爀攀搀开搀昀⸀挀漀瀀礀⠀⤀਀                椀昀 ✀爀栀✀ 椀渀 搀椀猀瀀氀愀礀开搀昀⸀挀漀氀甀洀渀猀㨀਀                    搀椀猀瀀氀愀礀开搀昀嬀✀爀栀✀崀 㴀 搀椀猀瀀氀愀礀开搀昀嬀✀爀栀✀崀⸀爀漀甀渀搀⠀㈀⤀਀਀                猀琀⸀搀愀琀愀昀爀愀洀攀⠀਀                    搀椀猀瀀氀愀礀开搀昀⸀猀漀爀琀开瘀愀氀甀攀猀⠀✀琀椀洀攀猀琀愀洀瀀✀Ⰰ 愀猀挀攀渀搀椀渀最㴀䘀愀氀猀攀⤀Ⰰ਀                    甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀Ⰰ਀                    栀攀椀最栀琀㴀洀椀渀⠀㘀　　Ⰰ ㄀　　 ⬀ ⠀氀攀渀⠀搀椀猀瀀氀愀礀开搀昀⤀ ⨀ ㌀㔀⤀⤀Ⰰ਀                    挀漀氀甀洀渀开挀漀渀昀椀最㴀笀਀                        ∀琀椀洀攀猀琀愀洀瀀∀㨀 猀琀⸀挀漀氀甀洀渀开挀漀渀昀椀最⸀䐀愀琀攀琀椀洀攀䌀漀氀甀洀渀⠀਀                            ∀✀䐆⨆✆ㄆ䨆⸆ 䠀✆䐆䠆䈆⨆∆Ⰰ਀                            昀漀爀洀愀琀㴀∀夀夀夀夀ⴀ䴀䴀ⴀ䐀䐀 䠀䠀㨀洀洀∀਀                        ⤀Ⰰ਀                        ∀爀栀∀㨀 猀琀⸀挀漀氀甀洀渀开挀漀渀昀椀最⸀一甀洀戀攀爀䌀漀氀甀洀渀⠀਀                            ∀刀䠀 ⠀洀洀⤀∀Ⰰ਀                            昀漀爀洀愀琀㴀∀─⸀㈀昀∀਀                        ⤀Ⰰ਀                        ∀猀琀愀琀甀猀∀㨀 猀琀⸀挀漀氀甀洀渀开挀漀渀昀椀最⸀吀攀砀琀䌀漀氀甀洀渀⠀਀                            ∀✀䐆ⴆ✆䐆⤆∆Ⰰ਀                            栀攀氀瀀㴀∀ⴀ✆䐆⤆ ✀䐆Ⰶ䠆⼆⤆∆਀                        ⤀਀                    紀਀                ⤀਀਀                ⌀ ─ⴆ㔆✆☆䨆✆⨆ ㌀ㄆ䨆㤆⤆ 䐀䐆䘆⨆✆☆Ⰶਆ                椀昀 氀攀渀⠀昀椀氀琀攀爀攀搀开搀昀⤀ 㸀 　㨀਀                    挀漀氀开猀琀愀琀猀 㴀 猀琀⸀挀漀氀甀洀渀猀⠀㌀⤀਀                    挀漀氀开猀琀愀琀猀嬀　崀⸀洀攀琀爀椀挀⠀∀✀䐆䘆⨆✆☆Ⰶ ✀䐆䔆㤆ㄆ䠆㘆⤆∆Ⰰ 氀攀渀⠀昀椀氀琀攀爀攀搀开搀昀⤀⤀਀                    挀漀氀开猀琀愀琀猀嬀㄀崀⸀洀攀琀爀椀挀⠀∀✀䐆䔆Ⰶ⨆✆㈆∆Ⰰ 氀攀渀⠀昀椀氀琀攀爀攀搀开搀昀嬀昀椀氀琀攀爀攀搀开搀昀嬀✀猀琀愀琀甀猀✀崀 㴀㴀 ✀倀䄀匀匀✀崀⤀⤀਀                    挀漀氀开猀琀愀琀猀嬀㈀崀⸀洀攀琀爀椀挀⠀∀✀䐆䔆ㄆ䄆䠆㘆∆Ⰰ 氀攀渀⠀昀椀氀琀攀爀攀搀开搀昀嬀昀椀氀琀攀爀攀搀开搀昀嬀✀猀琀愀琀甀猀✀崀 㴀㴀 ✀刀䔀䨀䔀䌀吀✀崀⤀⤀਀਀                ⌀ ⨀㔆⼆䨆ㄆ ✀䐆䘆⨆✆☆Ⰶਆ                挀猀瘀开爀攀猀甀氀琀猀 㴀 昀椀氀琀攀爀攀搀开搀昀⸀琀漀开挀猀瘀⠀椀渀搀攀砀㴀䘀愀氀猀攀⤀⸀攀渀挀漀搀攀⠀✀甀琀昀ⴀ㠀ⴀ猀椀最✀⤀਀                猀琀⸀搀漀眀渀氀漀愀搀开戀甀琀琀漀渀⠀਀                    ∀㴀⃜⨀㔆⼆䨆ㄆ ✀䐆䘆⨆✆☆Ⰶ ⠀䌀匀嘀⤀∀Ⰰ਀                    挀猀瘀开爀攀猀甀氀琀猀Ⰰ਀                    昀∀猀攀愀爀挀栀开爀攀猀甀氀琀猀开笀搀愀琀攀琀椀洀攀⸀渀漀眀⠀⤀⸀猀琀爀昀琀椀洀攀⠀✀─夀─洀─搀开─䠀─䴀─匀✀⤀紀⸀挀猀瘀∀Ⰰ਀                    ∀琀攀砀琀⼀挀猀瘀∀Ⰰ਀                    甀猀攀开挀漀渀琀愀椀渀攀爀开眀椀搀琀栀㴀吀爀甀攀਀                ⤀਀            攀氀猀攀㨀਀                猀琀⸀眀愀爀渀椀渀最⠀∀㴀ෘ⃝䐀✆ ⨀䠆Ⰶ⼆ 䘀⨆✆☆Ⰶ 䔀㜆✆⠆䈆⤆ 䐀䔆㤆✆䨆䨆ㄆ ✀䐆⠆ⴆ⬆∆⤀਀਀਀椀昀 开开渀愀洀攀开开 㴀㴀 ∀开开洀愀椀渀开开∀㨀਀    洀愀椀渀⠀⤀਀
